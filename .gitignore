@@ -1,0 +1,23 @@
+# secrets & creds
+.env
+credentials.json
+token.json
+token_sheets.json
+client_secret.json
+service_account.json
+state.json
+hotel_token.txt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# data output
+data/*.csv
+data/*.jsonl
+data/*.log
+
+# playwright
+.playwright/

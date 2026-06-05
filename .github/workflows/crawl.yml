@@ -1,0 +1,45 @@
+name: shiji-crawl
+
+on:
+  schedule:
+    # GitHub cron 은 UTC. KST = UTC+9.
+    # UTC 23, 00~11 = KST 08:00 ~ 20:00 매시 정각 (하루 13회)
+    - cron: "0 0-11,23 * * *"
+  workflow_dispatch: {}   # 수동 실행 버튼
+
+# 같은 시간대 중복 실행 방지 (이전 실행 끝날 때까지 대기 X, 새 것 우선)
+concurrency:
+  group: shiji-crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 의존성 설치 (+ chromium)
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: 구글 OAuth 토큰 파일 복원
+        env:
+          TOKEN_SHEETS_JSON: ${{ secrets.TOKEN_SHEETS_JSON }}
+        run: printf '%s' "$TOKEN_SHEETS_JSON" > token_sheets.json
+
+      - name: 수집 실행
+        env:
+          SHIJI_ID: ${{ secrets.SHIJI_ID }}
+          SHIJI_PW: ${{ secrets.SHIJI_PW }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          ADULTS: "2"
+          CHILDREN: "0"
+          SINK: sheet
+        run: python run_once.py
