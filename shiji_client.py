@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Shiji CCM 접속 클라이언트.
 
 로그인은 SPA 라서 Playwright(헤드리스 브라우저)로 처리하고,
@@ -89,14 +90,25 @@ def _submit_login(page) -> None:
 
 def _extract_token(page) -> str | None:
     # 1) 페이지 어딘가의 hotelIdFormHidden=... 패턴
-    html = page.content()
-    m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", html)
-    if m:
-        return m.group(1)
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+        html = page.content()
+        m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", html)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
     # 2) 메인 페이지로 가서 다시 시도
-    page.goto(config.BASE_URL + "/main.do", wait_until="networkidle")
-    m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", page.content())
-    return m.group(1) if m else None
+    page.goto(config.BASE_URL + "/main.do", wait_until="networkidle", timeout=60000)
+    time.sleep(3)
+    for _ in range(5):
+        try:
+            html = page.content()
+            m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", html)
+            return m.group(1) if m else None
+        except Exception:
+            time.sleep(2)
+    return None
 
 
 # ---------------------------------------------------------------- httpx 세션

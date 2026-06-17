@@ -8,11 +8,11 @@ CHAIN_CODE = "CCM"
 CURRENCY = "MOP"
 
 # arrival date 수집 범위 (양 끝 포함)
-ARR_START = date(2026, 7, 1)
-ARR_END = date(2026, 8, 1)
+ARR_START = date(2026, 6, 1)
+ARR_END = date(2026, 10, 31)
 
-# 숙박일 수 (각 arrival 마다 모두 수집)
-NIGHTS = [3, 4]
+# 숙박일 수 (빈방 여부 확인용 1박 고정)
+NIGHTS = [1]
 
 # 수집 대상 호텔 + 룸타입(코드 -> 사람이 읽는 라벨)
 # roomTypeCode 는 응답 roomRateList[].roomTypeCode 와 매칭된다.
@@ -41,16 +41,11 @@ HOTELS = {
 SHEET_HEADER_STAY = [
     "측정시각(KST)",
     "호텔",
-    "숙박시작일",
-    "박수",
+    "날짜",
     "룸타입",
-    "산정총액",
-    "1박단가",
-    "요금코드",
-    "통화",
     "빈방수",
     "상태",
 ]
 
 # 구글시트 워크시트(탭) 이름
-WS_STAY = "stay총액"
+WS_STAY = "빈방현황"

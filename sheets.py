@@ -14,7 +14,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
 ]
-NEW_SHEET_TITLE = "Shiji 빈방·가격"
+NEW_SHEET_TITLE = "Shiji 빈방현황"
 
 
 def _client():
@@ -61,7 +61,17 @@ def _overwrite(sh, title: str, header: list, rows: list[list]) -> None:
 
 
 def append_rows(stay_rows: list[list]) -> None:
-    """이름은 append 지만 매 실행마다 시트를 '덮어쓴다' (최신 1세트만 유지)."""
+    """이름은 append 지만 매 실행마다 시트를 '덮어쓴다' (최신 1세트만 유지).
+    전체(stay총액) + 호텔별 탭(Andaz Macau / Broadway Hotel) 동시 기록."""
     gc = _client()
     sh = _open_spreadsheet(gc)
+
+    # 1) 전체 탭
     _overwrite(sh, config.WS_STAY, config.SHEET_HEADER_STAY, stay_rows)
+
+    # 2) 호텔별 탭
+    import config as _cfg
+    for hotel_info in _cfg.HOTELS.values():
+        name = hotel_info["name"]
+        hotel_rows = [r for r in stay_rows if r[1] == name]
+        _overwrite(sh, name, _cfg.SHEET_HEADER_STAY, hotel_rows)

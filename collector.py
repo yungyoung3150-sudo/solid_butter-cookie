@@ -26,19 +26,24 @@ def _daterange(start, end):
 
 
 def _resilient_search(state, hotel_code, arr, dep, adults, children, tries=4):
-    """타임아웃은 재시도, 세션 만료는 자동 재로그인. state 로 client/token 갱신."""
+    """타임아웃은 재시도, 세션 만료는 자동 재로그인. state 로 client/token 갱신.
+    모든 재시도 실패 시 None 반환 (누락 처리)."""
+    last_err = None
     for attempt in range(tries):
         try:
             return shiji_client.search(
                 state["client"], state["token"], hotel_code, arr, dep,
                 adults, children)
-        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.RemoteProtocolError):
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.RemoteProtocolError) as e:
+            last_err = e
             time.sleep(2 * (attempt + 1))
         except shiji_client.LoginRequired:
-            state["client"], state["token"] = shiji_client.ensure_session()
-    # 마지막 시도 (실패하면 예외 전파)
-    return shiji_client.search(
-        state["client"], state["token"], hotel_code, arr, dep, adults, children)
+            try:
+                state["client"], state["token"] = shiji_client.ensure_session()
+            except Exception as e:
+                last_err = e
+    print(f"[누락] {hotel_code} {arr}~{dep} 4회 재시도 실패: {last_err}", flush=True)
+    return None
 
 
 def collect_all(client, token, adults: int, children: int):
@@ -51,29 +56,20 @@ def collect_all(client, token, adults: int, children: int):
         name = hotel["name"]
         targets = hotel["room_types"]
 
-        for arr in _daterange(config.ARR_START, config.ARR_END):
-            for nights in config.NIGHTS:
-                dep = arr + timedelta(days=nights)
-                res = _resilient_search(
-                    state, hotel_code, arr.isoformat(), dep.isoformat(),
-                    adults, children)
-                ok = res["status"] == "SUCCESS"
+        for i, arr in enumerate(_daterange(config.ARR_START, config.ARR_END)):
+            print(f"[{name}] {arr} 수집 중... ({i+1}번째)", flush=True)
+            dep = arr + timedelta(days=1)
+            res = _resilient_search(
+                state, hotel_code, arr.isoformat(), dep.isoformat(),
+                adults, children)
+            if res is None:
                 for code, label in targets.items():
-                    units = res["units"].get(code, 0) if ok else 0
-                    rate = res["rates"].get(code) if ok else None
-                    if rate:
-                        nightly = rate["amount"]
-                        total = round(nightly * nights, 2)
-                        stay_rows.append([
-                            now, name, arr.isoformat(), nights, label,
-                            total, nightly, rate["ratePlanCode"],
-                            rate["currency"], units, "예약가능",
-                        ])
-                    else:
-                        status = "요금없음" if units > 0 else "빈방없음"
-                        stay_rows.append([
-                            now, name, arr.isoformat(), nights, label,
-                            "", "", "", config.CURRENCY, units, status,
-                        ])
+                    stay_rows.append([now, name, arr.isoformat(), label, "", "누락"])
+                continue
+            ok = res["status"] == "SUCCESS"
+            for code, label in targets.items():
+                units = res["units"].get(code, 0) if ok else 0
+                status = "예약가능" if units > 0 else "빈방없음"
+                stay_rows.append([now, name, arr.isoformat(), label, units, status])
 
     return stay_rows
