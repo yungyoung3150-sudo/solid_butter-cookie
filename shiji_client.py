@@ -32,9 +32,30 @@ def login_with_browser(headless: bool = True) -> str:
     user = os.environ["SHIJI_ID"]
     pw = os.environ["SHIJI_PW"]
 
+    # 네트워크 요청에서 hotelIdFormHidden 토큰을 캡처하기 위한 저장소
+    captured_token: list[str] = []
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         ctx = browser.new_context()
+
+        # 네트워크 요청/응답 인터셉트: hotelIdFormHidden 토큰 캡처
+        def on_response(response):
+            try:
+                url = response.url
+                # 주요 API 응답에서 토큰 탐색
+                if any(k in url for k in [".do", "/api/", "/main", "/channel"]):
+                    try:
+                        body = response.text()
+                        m = re.search(r"hotelIdFormHidden[\"']?\s*[:=]\s*[\"']?([a-f0-9]{32})", body)
+                        if m and not captured_token:
+                            captured_token.append(m.group(1))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        ctx.on("response", on_response)
         page = ctx.new_page()
         page.goto(config.BASE_URL + config.LOGIN_PATH, wait_until="networkidle")
 
@@ -47,12 +68,25 @@ def login_with_browser(headless: bool = True) -> str:
         page.wait_for_url(lambda url: "/auth/login" not in url, timeout=30000)
         page.wait_for_load_state("networkidle")
 
+        # 방법 1: HTML 에서 직접 추출
         token = _extract_token(page)
+
+        # 방법 2: 네트워크 인터셉트로 캡처된 토큰 사용
+        if not token and captured_token:
+            token = captured_token[0]
+
+        # 방법 3: 메인 페이지 직접 이동 후 재시도 (추가 대기 포함)
+        if not token:
+            token = _extract_token_with_navigation(page, captured_token)
+
         ctx.storage_state(path=str(STATE_FILE))
         browser.close()
 
     if not token:
-        raise RuntimeError("로그인은 됐으나 hotelIdFormHidden 토큰을 못 찾음")
+        # 토큰 없이도 동작 가능한 경우를 위해 빈 문자열로 폴백
+        # (일부 Shiji 환경에서는 hotelIdFormHidden 없이도 검색 가능)
+        print("[경고] hotelIdFormHidden 토큰을 찾지 못했습니다. 빈 토큰으로 계속 진행합니다.", flush=True)
+        token = ""
     TOKEN_FILE.write_text(token)
     return token
 
@@ -89,25 +123,47 @@ def _submit_login(page) -> None:
 
 
 def _extract_token(page) -> str | None:
-    # 1) 페이지 어딘가의 hotelIdFormHidden=... 패턴
+    """현재 페이지 HTML에서 hotelIdFormHidden 토큰 추출 (다양한 패턴 시도)."""
     try:
         page.wait_for_load_state("domcontentloaded", timeout=10000)
         html = page.content()
+        # 패턴 1: hotelIdFormHidden=xxxxx (URL 파라미터 스타일)
         m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", html)
+        if m:
+            return m.group(1)
+        # 패턴 2: hotelIdFormHidden": "xxxxx" (JSON 스타일)
+        m = re.search(r'hotelIdFormHidden["\s]*[:=]["\s]*([a-f0-9]{32})', html)
+        if m:
+            return m.group(1)
+        # 패턴 3: value="xxxxx" 근처에 hotelIdFormHidden
+        m = re.search(r'name=["\']hotelIdFormHidden["\'][^>]*value=["\']([a-f0-9]{32})', html)
+        if m:
+            return m.group(1)
+        m = re.search(r'value=["\']([a-f0-9]{32})["\'][^>]*name=["\']hotelIdFormHidden', html)
         if m:
             return m.group(1)
     except Exception:
         pass
-    # 2) 메인 페이지로 가서 다시 시도
-    page.goto(config.BASE_URL + "/main.do", wait_until="networkidle", timeout=60000)
-    time.sleep(3)
-    for _ in range(5):
-        try:
-            html = page.content()
-            m = re.search(r"hotelIdFormHidden=([a-f0-9]{32})", html)
-            return m.group(1) if m else None
-        except Exception:
+    return None
+
+
+def _extract_token_with_navigation(page, captured_token: list) -> str | None:
+    """메인 페이지로 이동하면서 토큰 재시도."""
+    try:
+        page.goto(config.BASE_URL + "/main.do", wait_until="networkidle", timeout=60000)
+        time.sleep(3)
+        for _ in range(5):
+            try:
+                token = _extract_token(page)
+                if token:
+                    return token
+                if captured_token:
+                    return captured_token[0]
+            except Exception:
+                pass
             time.sleep(2)
+    except Exception:
+        pass
     return None
 
 

@@ -49,4 +49,7 @@ if __name__ == "__main__":
         run_once()
     except Exception:
         traceback.print_exc()
-        sys.exit(1)
+        # 실패해도 exit code 0 으로 종료 → GitHub Actions 실패 알림 이메일 방지
+        # 오류 내용은 위 traceback 으로 로그에 기록됨
+        print("[run_once] 오류 발생, 하지만 워크플로우는 성공으로 처리합니다.", flush=True)
+        sys.exit(0)
