@@ -3,8 +3,8 @@ name: shiji-crawl
 on:
   schedule:
     # GitHub cron 은 UTC. KST = UTC+9.
-    # [임시] 업데이트 확인용 10분 단위, 24시간 전체
-    - cron: "*/10 * * * *"
+    # KST 10:00~22:00 매시 정각 = UTC 01:00~13:00
+    - cron: "0 1-13 * * *"
   workflow_dispatch: {}   # 수동 실행 버튼
 
 # 같은 시간대 중복 실행 방지 (이전 실행 끝날 때까지 대기 X, 새 것 우선)
