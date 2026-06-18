@@ -26,8 +26,7 @@ def _daterange(start, end):
 
 
 def _resilient_search(state, hotel_code, arr, dep, adults, children, tries=4):
-    """타임아웃은 재시도, 세션 만료는 자동 재로그인. state 로 client/token 갱신.
-    모든 재시도 실패 시 None 반환 (누락 처리)."""
+    """타임아웃은 재시도, 세션 만료는 자동 재로그인. 모든 재시도 실패 시 None 반환."""
     last_err = None
     for attempt in range(tries):
         try:
@@ -47,7 +46,11 @@ def _resilient_search(state, hotel_code, arr, dep, adults, children, tries=4):
 
 
 def collect_all(client, token, adults: int, children: int):
-    """반환: stay_rows (SHEET_HEADER_STAY 순서). (도착일 × 박수) 검색을 직접 사용."""
+    """반환: stay_rows (SHEET_HEADER_RAW 순서).
+
+    (도착일 × 박수) 연박 검색 결과를 직접 사용.
+    산정총액 = 1박단가 × 박수.
+    """
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
     stay_rows: list[list] = []
     state = {"client": client, "token": token}
@@ -58,18 +61,34 @@ def collect_all(client, token, adults: int, children: int):
 
         for i, arr in enumerate(_daterange(config.ARR_START, config.ARR_END)):
             print(f"[{name}] {arr} 수집 중... ({i+1}번째)", flush=True)
-            dep = arr + timedelta(days=1)
-            res = _resilient_search(
-                state, hotel_code, arr.isoformat(), dep.isoformat(),
-                adults, children)
-            if res is None:
+            for nights in config.NIGHTS:
+                dep = arr + timedelta(days=nights)
+                res = _resilient_search(
+                    state, hotel_code, arr.isoformat(), dep.isoformat(),
+                    adults, children)
+                if res is None:
+                    for code, label in targets.items():
+                        stay_rows.append([
+                            now, name, arr.isoformat(), nights, label,
+                            "", "", "", config.CURRENCY, 0, "누락"
+                        ])
+                    continue
+                ok = res["status"] == "SUCCESS"
                 for code, label in targets.items():
-                    stay_rows.append([now, name, arr.isoformat(), label, "", "누락"])
-                continue
-            ok = res["status"] == "SUCCESS"
-            for code, label in targets.items():
-                units = res["units"].get(code, 0) if ok else 0
-                status = "예약가능" if units > 0 else "빈방없음"
-                stay_rows.append([now, name, arr.isoformat(), label, units, status])
+                    units = res["units"].get(code, 0) if ok else 0
+                    status = "예약가능" if units > 0 else "빈방없음"
+                    rate_info = res["rates"].get(code, {}) if ok else {}
+                    nightly_rate = rate_info.get("amount", "")
+                    rate_code_val = rate_info.get("ratePlanCode", "")
+                    currency = rate_info.get("currency", config.CURRENCY)
+                    total_price = (
+                        round(nightly_rate * nights, 2)
+                        if nightly_rate != "" else ""
+                    )
+                    stay_rows.append([
+                        now, name, arr.isoformat(), nights, label,
+                        total_price, nightly_rate, rate_code_val, currency,
+                        units, status,
+                    ])
 
     return stay_rows
