@@ -24,17 +24,27 @@ def run_once() -> int:
     finally:
         client.close()
 
-    storage.append(stay_rows)  # 백업은 항상
+    storage.append(stay_rows)  # 백업은 항상(시트 기록 성패와 무관)
+
+    # ── 신뢰 가드 ──────────────────────────────────────────────
+    # 목적: '신선해 보이지만 틀린' 시트를 만들지 않는다. 크롤이 건전할 때만 시트에 쓴다.
+    # 누락 = 검색이 4회 재시도 후에도 실패한 건(=세션/로그인/네트워크 문제). 정상 런은 거의 0.
+    total = len(stay_rows)
+    missing = sum(1 for r in stay_rows if r[-1] == "누락")
+    if total == 0:
+        raise RuntimeError("수집 결과 0행 — 크롤 비정상. 시트 미기록.")
+    if missing > total * 0.5:
+        raise RuntimeError(
+            f"누락 과다 {missing}/{total}(>50%) — 로그인/세션 의심. "
+            "신뢰 불가 데이터라 시트에 쓰지 않고 런을 실패시킴.")
 
     sink = os.environ.get("SINK", "sheet")
     if sink == "sheet":
-        try:
-            import sheets
-            sheets.append_rows(stay_rows)
-            dest = "sheet+csv"
-        except Exception:
-            traceback.print_exc()
-            dest = "csv만(시트 실패)"
+        # 시트 기록 실패는 삼키지 않는다 → 런이 빨갛게 실패 = GitHub 자동 실패메일.
+        # (조용한 시트 동결 = '6:25 재발'을 못 보는 사태 방지)
+        import sheets
+        sheets.append_rows(stay_rows)
+        dest = "sheet+csv"
     else:
         dest = "csv"
 
@@ -49,7 +59,4 @@ if __name__ == "__main__":
         run_once()
     except Exception:
         traceback.print_exc()
-        # 실패해도 exit code 0 으로 종료 → GitHub Actions 실패 알림 이메일 방지
-        # 오류 내용은 위 traceback 으로 로그에 기록됨
-        print("[run_once] 오류 발생, 하지만 워크플로우는 성공으로 처리합니다.", flush=True)
-        sys.exit(0)
+        sys.exit(1)
