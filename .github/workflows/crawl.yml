@@ -3,11 +3,11 @@ name: shiji-crawl
 on:
   schedule:
     # GitHub cron 은 UTC. KST = UTC+9.
-    # [임시] 업데이트 확인용 10분 단위, 24시간 전체
-    - cron: "*/10 * * * *"
+    # KST 10:00~22:00 매시 정각 = UTC 01:00~13:00
+    - cron: "0 1-13 * * *"
   workflow_dispatch: {}   # 수동 실행 버튼
 
-# 같은 시간대 중복 실행 방지 (이전 실행 끝날 때까지 대기 X, 새 것 우선)
+# 중복 실행 방지: 이전 실행이 끝날 때까지 새 실행 대기 (취소 안 함)
 concurrency:
   group: shiji-crawl
   cancel-in-progress: false
@@ -15,7 +15,9 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 크롤은 shijicloud 가 동시요청을 거부해 순차로만 가능 → ~22~25분 소요.
+    # 25분 한도에선 후처리 직전 잘려 cancelled 되므로 여유 있게 40분으로.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
