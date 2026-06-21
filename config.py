@@ -11,8 +11,8 @@ CURRENCY = "MOP"
 ARR_START = date(2026, 6, 1)
 ARR_END = date(2026, 10, 31)
 
-# 숙박일 수 (빈방 여부 확인용 1박 고정)
-NIGHTS = [1]
+# 숙박일 수: 2박3일=2, 3박4일=3
+NIGHTS = [2, 3]
 
 # 수집 대상 호텔 + 룸타입(코드 -> 사람이 읽는 라벨)
 # roomTypeCode 는 응답 roomRateList[].roomTypeCode 와 매칭된다.
@@ -40,12 +40,16 @@ HOTELS = {
 # stay총액: 도착일×박수 연박 검색을 직접 사용. 산정총액 = 1박단가 × 박수
 SHEET_HEADER_STAY = [
     "측정시각(KST)",
-    "호텔",
-    "날짜",
+    "출발일",
     "룸타입",
-    "빈방수",
+    "예약가능객실수",
     "상태",
 ]
 
-# 구글시트 워크시트(탭) 이름
-WS_STAY = "빈방현황"
+# 탭 이름: (hotel_code, nights) → 시트 탭명
+WS_TABS = {
+    ("BMHMO", 2): "Broadway 2박3일",
+    ("BMHMO", 3): "Broadway 3박4일",
+    ("ADZMO", 2): "Andaz 2박3일",
+    ("ADZMO", 3): "Andaz 3박4일",
+}
