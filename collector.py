@@ -58,18 +58,19 @@ def collect_all(client, token, adults: int, children: int):
 
         for i, arr in enumerate(_daterange(config.ARR_START, config.ARR_END)):
             print(f"[{name}] {arr} 수집 중... ({i+1}번째)", flush=True)
-            dep = arr + timedelta(days=1)
-            res = _resilient_search(
-                state, hotel_code, arr.isoformat(), dep.isoformat(),
-                adults, children)
-            if res is None:
+            for nights in config.NIGHTS:
+                dep = arr + timedelta(days=nights)
+                res = _resilient_search(
+                    state, hotel_code, arr.isoformat(), dep.isoformat(),
+                    adults, children)
+                if res is None:
+                    for code, label in targets.items():
+                        stay_rows.append([now, hotel_code, arr.isoformat(), nights, label, "", "누락"])
+                    continue
+                ok = res["status"] == "SUCCESS"
                 for code, label in targets.items():
-                    stay_rows.append([now, name, arr.isoformat(), label, "", "누락"])
-                continue
-            ok = res["status"] == "SUCCESS"
-            for code, label in targets.items():
-                units = res["units"].get(code, 0) if ok else 0
-                status = "예약가능" if units > 0 else "빈방없음"
-                stay_rows.append([now, name, arr.isoformat(), label, units, status])
+                    units = res["units"].get(code, 0) if ok else 0
+                    status = "예약가능" if units > 0 else "객실불가"
+                    stay_rows.append([now, hotel_code, arr.isoformat(), nights, label, units, status])
 
     return stay_rows
