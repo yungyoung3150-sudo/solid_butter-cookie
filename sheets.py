@@ -60,18 +60,99 @@ def _overwrite(sh, title: str, header: list, rows: list[list]) -> None:
     ws.append_rows([header] + rows, value_input_option="USER_ENTERED")
 
 
+def _pivot(stay_rows: list, hotel_code: str, nights: int, room_labels: list) -> tuple:
+    """날짜×룸타입 피벗.
+    반환: (header, data_rows)
+    header: [측정시각(KST), 출발일, 룸타입1, 룸타입2, ...]
+    data_rows: 날짜 1행에 룸타입별 '가능(N)' 또는 '불가' 값
+    """
+    from collections import defaultdict
+    # {(측정시각, 출발일): {룸타입: (units, status)}}
+    table: dict = defaultdict(dict)
+    for r in stay_rows:
+        if r[1] != hotel_code or r[3] != nights:
+            continue
+        ts, date, label, units, status = r[0], r[2], r[4], r[5], r[6]
+        table[(ts, date)][label] = (units, status)
+
+    header = ["측정시각(KST)", "출발일"] + room_labels
+    rows = []
+    for (ts, date) in sorted(table.keys(), key=lambda x: x[1]):
+        row = [ts, date]
+        for label in room_labels:
+            info = table[(ts, date)].get(label)
+            if info is None:
+                row.append("누락")
+            else:
+                units, status = info
+                if status == "예약가능":
+                    row.append(f"가능({units})")
+                elif status == "누락":
+                    row.append("누락")
+                else:
+                    row.append("불가")
+        rows.append(row)
+    return header, rows
+
+
+def _apply_red_formatting(sh, ws, num_room_cols: int) -> None:
+    """'불가' 셀만 빨간색 조건부 서식. 측정시각·출발일 열 제외."""
+    import gspread
+    sheet_id = ws.id
+    spreadsheet = sh.fetch_sheet_metadata()
+    for s in spreadsheet['sheets']:
+        if s['properties']['sheetId'] == sheet_id:
+            existing = s.get('conditionalFormats', [])
+            break
+    else:
+        existing = []
+
+    delete_reqs = [
+        {"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}}
+        for _ in existing
+    ]
+    if delete_reqs:
+        sh.batch_update({"requests": delete_reqs})
+
+    RED = {"red": 1.0, "green": 0.7, "blue": 0.7}
+    requests = []
+    for col_idx in range(2, 2 + num_room_cols):  # C열부터 룸타입 열까지
+        requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [{
+                        "sheetId": sheet_id,
+                        "startRowIndex": 1,
+                        "startColumnIndex": col_idx,
+                        "endColumnIndex": col_idx + 1,
+                    }],
+                    "booleanRule": {
+                        "condition": {
+                            "type": "TEXT_EQ",
+                            "values": [{"userEnteredValue": "불가"}]
+                        },
+                        "format": {"backgroundColor": RED}
+                    }
+                },
+                "index": 0
+            }
+        })
+    if requests:
+        sh.batch_update({"requests": requests})
+
+
 def append_rows(stay_rows: list[list]) -> None:
-    """이름은 append 지만 매 실행마다 시트를 '덮어쓴다' (최신 1세트만 유지).
-    전체(stay총액) + 호텔별 탭(Andaz Macau / Broadway Hotel) 동시 기록."""
+    """4개 탭에 피벗 형식으로 기록: Broadway/Andaz × 2박3일/3박4일.
+    내부 row 형식: [측정시각, hotel_code, 출발일, nights, 룸타입, 예약가능객실수, 상태]
+    시트 형식: 날짜 1행 × 룸타입 열 (가능(N) / 불가)
+    """
     gc = _client()
     sh = _open_spreadsheet(gc)
 
-    # 1) 전체 탭
-    _overwrite(sh, config.WS_STAY, config.SHEET_HEADER_STAY, stay_rows)
-
-    # 2) 호텔별 탭
-    import config as _cfg
-    for hotel_info in _cfg.HOTELS.values():
-        name = hotel_info["name"]
-        hotel_rows = [r for r in stay_rows if r[1] == name]
-        _overwrite(sh, name, _cfg.SHEET_HEADER_STAY, hotel_rows)
+    for (hotel_code, nights), tab_name in config.WS_TABS.items():
+        room_labels = list(config.HOTELS[hotel_code]["room_types"].values())
+        header, rows = _pivot(stay_rows, hotel_code, nights, room_labels)
+        _overwrite(sh, tab_name, header, rows)
+        ws = sh.worksheet(tab_name)
+        _apply_red_formatting(sh, ws, len(room_labels))
+        print(f"  [{tab_name}] {len(rows)}행", flush=True)
