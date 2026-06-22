@@ -147,12 +147,16 @@ def append_rows(stay_rows: list[list]) -> None:
     시트 형식: 날짜 1행 × 룸타입 열 (가능(N) / 불가)
     """
     gc = _client()
-    sh = _open_spreadsheet(gc)
 
-    for (hotel_code, nights), tab_name in config.WS_TABS.items():
-        room_labels = list(config.HOTELS[hotel_code]["room_types"].values())
-        header, rows = _pivot(stay_rows, hotel_code, nights, room_labels)
-        _overwrite(sh, tab_name, header, rows)
-        ws = sh.worksheet(tab_name)
-        _apply_red_formatting(sh, ws, len(room_labels))
-        print(f"  [{tab_name}] {len(rows)}행", flush=True)
+    # GOOGLE_SHEET_ID 에 콤마로 여러 시트 ID 를 주면 그 전부에 동일 기록한다(예: Shiji + 갤럭시).
+    ids = [s.strip() for s in os.environ.get("GOOGLE_SHEET_ID", "").split(",") if s.strip()]
+    sheets_to_write = [gc.open_by_key(sid) for sid in ids] if ids else [_open_spreadsheet(gc)]
+
+    for sh in sheets_to_write:
+        for (hotel_code, nights), tab_name in config.WS_TABS.items():
+            room_labels = list(config.HOTELS[hotel_code]["room_types"].values())
+            header, rows = _pivot(stay_rows, hotel_code, nights, room_labels)
+            _overwrite(sh, tab_name, header, rows)
+            ws = sh.worksheet(tab_name)
+            _apply_red_formatting(sh, ws, len(room_labels))
+            print(f"  [{sh.title}/{tab_name}] {len(rows)}행", flush=True)
